@@ -1,4 +1,3 @@
-
 name: Build CinemaProPlayer APK
 
 on:
@@ -40,19 +39,38 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # Explicit, deterministic debug keystore — created BEFORE the build
+      # runs, at the exact path app/build.gradle's signingConfigs.debug
+      # now points to (~/.android/debug.keystore). This removes any
+      # reliance on Gradle/AGP's own auto-generation of that keystore on
+      # a fresh CI runner, which is what caused "App not installed" with
+      # no useful reason even though the build itself succeeded.
+      - name: Generate deterministic debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Setup Gradle (auto-provisions Gradle, no wrapper jar needed)
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.2'
 
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.2
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Grant execute permission for gradlew (if wrapper exists)
+        run: |
+          if [ -f gradlew ]; then chmod +x gradlew; fi
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -61,7 +79,12 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Build Release APK (unsigned)
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            gradle assembleRelease --stacktrace
+          fi
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
